@@ -27,6 +27,8 @@ use crate::{
 mod custom_args;
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "macos")]
+mod macos;
 mod mod_loader;
 mod platform;
 
@@ -130,7 +132,7 @@ impl ManagedGame {
             }
             _ => None,
         }
-        .unwrap_or_else(|| find_executable(game_dir).map(Command::new))?;
+        .unwrap_or_else(|| self.direct_command(vanilla, game_dir))?;
 
         let profile = self.active_profile();
 
@@ -158,7 +160,7 @@ impl ManagedGame {
             is_proton
         };
 
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
         let is_proton = false;
 
         if is_proton {
@@ -176,6 +178,16 @@ impl ManagedGame {
         }
 
         Ok((launch_mode, command))
+    }
+
+    #[allow(unused_variables)] // vanilla is only used on macOS
+    fn direct_command(&self, vanilla: bool, game_dir: &Path) -> Result<Command> {
+        #[cfg(target_os = "macos")]
+        if let Some(command) = macos::direct_command(&self.game.mod_loader, vanilla, game_dir)? {
+            return Ok(command);
+        }
+
+        find_executable(game_dir).map(Command::new)
     }
 
     fn copy_required_files(&self, game_dir: &Path) -> Result<()> {
@@ -198,6 +210,12 @@ impl ManagedGame {
                 let name = entry.file_name();
 
                 if EXCLUDES.iter().any(|exclude| name == *exclude) {
+                    return false;
+                }
+
+                // Finder creates these in any folder it has opened
+                #[cfg(target_os = "macos")]
+                if name == ".DS_Store" {
                     return false;
                 }
 
@@ -292,6 +310,10 @@ const IGNORED_EXES: &[&str] = &[
     "crashpad_handler.exe",
     "UnityCrashHandler32.exe",
     "UnityCrashHandler64.exe",
+    // BepInEx packs ship a server script next to the game script, and which one
+    // is found first depends on the directory order
+    #[cfg(target_os = "macos")]
+    "start_server_bepinex.sh",
 ];
 
 fn find_executable(game_dir: &Path) -> Result<PathBuf> {
@@ -317,6 +339,16 @@ fn find_executable(game_dir: &Path) -> Result<PathBuf> {
         .ok_or_eyre("game executable not found")
 }
 
+/// Steam's launch options are tagged with the operating systems they apply to,
+/// e.g. `"oslist": "windows,macos"`. Untagged options apply everywhere.
+#[cfg(target_os = "macos")]
+fn is_for_macos(config: &serde_json::Value) -> bool {
+    config
+        .get("oslist")
+        .and_then(|list| list.as_str())
+        .is_none_or(|list| list.split(',').any(|os| os.trim() == "macos"))
+}
+
 pub fn parse_steam_launch_options(steam_id: u32) -> Result<Vec<LaunchOption>> {
     let raw_options = platform::get_steam_launch_options(steam_id)
         .context("failed to get Steam launch options")?;
@@ -333,6 +365,12 @@ pub fn parse_steam_launch_options(steam_id: u32) -> Result<Vec<LaunchOption>> {
                 {
                     continue;
                 }
+
+                #[cfg(target_os = "macos")]
+                if let Some(config) = option.get("config")
+                    && !is_for_macos(config) {
+                        continue;
+                    }
 
                 let launch_type = option
                     .get("type")
@@ -360,4 +398,32 @@ pub fn parse_steam_launch_options(steam_id: u32) -> Result<Vec<LaunchOption>> {
     }
 
     Ok(launch_options)
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn find_executable_skips_server_script() {
+        let dir = tempfile::tempdir().unwrap();
+
+        for name in ["start_server_bepinex.sh", "start_game_bepinex.sh"] {
+            fs::write(dir.path().join(name), "").unwrap();
+        }
+
+        let found = find_executable(dir.path()).unwrap();
+        assert_eq!(found.file_name().unwrap(), "start_game_bepinex.sh");
+    }
+
+    #[test]
+    fn launch_option_os_filter() {
+        assert!(is_for_macos(&json!({ "oslist": "macos" })));
+        assert!(is_for_macos(&json!({ "oslist": "windows,macos" })));
+        assert!(is_for_macos(&json!({ "osarch": 64 })));
+        assert!(!is_for_macos(&json!({ "oslist": "windows", "osarch": 64 })));
+        assert!(!is_for_macos(&json!({ "oslist": "linux" })));
+    }
 }

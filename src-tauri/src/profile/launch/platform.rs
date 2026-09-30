@@ -87,6 +87,21 @@ fn read_steam_registry() -> Result<PathBuf> {
     Ok(PathBuf::from(path))
 }
 
+#[cfg(target_os = "macos")]
+fn create_base_steam_command() -> Result<Command> {
+    use crate::util::fs::PathExt;
+
+    // Steam's data lives in ~/Library/Application Support/Steam, but the launcher
+    // itself is the app bundle, which is normally installed in /Applications
+    let path = Path::new("/Applications/Steam.app/Contents/MacOS/steam_osx")
+        .exists_or_none()
+        .ok_or_eyre("failed to find Steam installation, is it not installed?")?;
+
+    info!("using steam installation at {}", path.display());
+
+    Ok(Command::new(path))
+}
+
 #[cfg(target_os = "linux")]
 fn create_base_steam_command() -> Result<Command> {
     use crate::util::fs::PathExt;

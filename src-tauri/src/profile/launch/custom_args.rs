@@ -14,7 +14,7 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<str> + Display,
 {
-    #[cfg(target_os = "linux")]
+    #[cfg(unix)]
     {
         shell_words::join(words)
     }
@@ -41,7 +41,7 @@ where
 }
 
 fn split(custom_args: &str) -> Result<Vec<String>> {
-    #[cfg(target_os = "linux")]
+    #[cfg(unix)]
     {
         shell_words::split(custom_args).context("failed to split arguments")
     }
@@ -305,8 +305,8 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_os = "linux")]
-    fn join_linux() {
+    #[cfg(unix)]
+    fn join_unix() {
         let args = vec!["--foo", "bar baz", "something else"];
         let joined = join(args);
         assert_eq!(joined, "--foo 'bar baz' 'something else'");

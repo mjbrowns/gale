@@ -25,6 +25,9 @@
 			"icons/icon.ico"
 		],
 		"windows": {},
+		"macOS": {
+			"signingIdentity": "-"
+		},
 		"linux": {
 			"appimage": {
 				"files": {

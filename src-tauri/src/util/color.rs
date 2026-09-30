@@ -30,3 +30,10 @@ pub async fn system_accent() -> Result<Option<Color>> {
 
     Ok(Some(Color(color.R, color.G, color.B, 255)))
 }
+
+// There is no stable, dependency-free API for the macOS accent color, so the
+// frontend falls back to its default.
+#[cfg(target_os = "macos")]
+pub async fn system_accent() -> Result<Option<Color>> {
+    Ok(None)
+}

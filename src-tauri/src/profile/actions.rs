@@ -468,6 +468,10 @@ impl ManagedGame {
         let shortcut_path =
             desktop_path.join(format!("gale-{}-{}.desktop", self.game.name, profile.name));
 
+        #[cfg(target_os = "macos")]
+        let shortcut_path =
+            desktop_path.join(format!("Gale - {} - {}.app", self.game.name, profile.name));
+
         if shortcut_path.exists() {
             bail!("shortcut already exists");
         }
@@ -533,6 +537,41 @@ impl ManagedGame {
 
             std::fs::set_permissions(&shortcut_path, PermissionsExt::from_mode(0o755))
                 .context("failed to set permissions on desktop file")?;
+        }
+
+        // A minimal app bundle whose launcher script starts Gale with the same arguments
+        // as the Linux desktop file and the Windows shortcut.
+        #[cfg(target_os = "macos")]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let macos_dir = shortcut_path.join("Contents/MacOS");
+            std::fs::create_dir_all(&macos_dir).context("failed to create app bundle")?;
+
+            let info_plist = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+                 <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
+                 <plist version=\"1.0\">\n\
+                 <dict>\n\
+                 \t<key>CFBundleExecutable</key><string>launch</string>\n\
+                 \t<key>CFBundleIdentifier</key><string>com.kesomannen.gale.shortcut</string>\n\
+                 \t<key>CFBundlePackageType</key><string>APPL</string>\n\
+                 </dict>\n\
+                 </plist>\n";
+
+            std::fs::write(shortcut_path.join("Contents/Info.plist"), info_plist)
+                .context("failed to write Info.plist")?;
+
+            let script = format!(
+                "#!/bin/sh\nexec {} --game {} --profile {} --launch --no-gui\n",
+                shell_words::quote(&command),
+                shell_words::quote(&self.game.slug),
+                shell_words::quote(&profile.name),
+            );
+
+            let script_path = macos_dir.join("launch");
+            std::fs::write(&script_path, script).context("failed to write launcher script")?;
+            std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755))
+                .context("failed to set permissions on launcher script")?;
         }
 
         Ok(())

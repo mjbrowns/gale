@@ -45,12 +45,29 @@ fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         return Err(err.into());
     }
 
+    // macOS registers the protocols from the app bundle's Info.plist, not at runtime
+    #[cfg(not(target_os = "macos"))]
     if let Err(err) = app.deep_link().register("ror2mm") {
         warn!("failed to register ror2mm deep link protocol: {:#}", err);
     }
 
+    #[cfg(not(target_os = "macos"))]
     if let Err(err) = app.deep_link().register("gale") {
         warn!("failed to register gale deep link protocol: {:#}", err);
+    }
+
+    // macOS delivers links and opened files as events instead of command line arguments
+    #[cfg(target_os = "macos")]
+    {
+        let handle = app.handle().to_owned();
+
+        // a link that launched the app arrives before the listener below exists
+        if let Ok(Some(urls)) = app.deep_link().get_current() {
+            deep_link::handle_opened(&handle, urls);
+        }
+
+        app.deep_link()
+            .on_open_url(move |event| deep_link::handle_opened(&handle, event.urls()));
     }
 
     let args = env::args().collect_vec();

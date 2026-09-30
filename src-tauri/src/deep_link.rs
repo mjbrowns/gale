@@ -45,6 +45,20 @@ pub fn handle(app: &AppHandle, url: String) -> bool {
     true
 }
 
+/// Handles links and files that macOS passes to the app as events.
+#[cfg(target_os = "macos")]
+pub fn handle_opened(app: &AppHandle, urls: Vec<tauri::Url>) {
+    for url in urls {
+        // opened files arrive as file:// urls, but the handler expects a path
+        let url = match url.to_file_path() {
+            Ok(path) => path.to_string_lossy().into_owned(),
+            Err(()) => url.to_string(),
+        };
+
+        handle(app, url);
+    }
+}
+
 fn handle_inner_task<T, Fut>(app: AppHandle, task: Fut)
 where
     Fut: Future<Output = Result<T>> + Send + 'static,
